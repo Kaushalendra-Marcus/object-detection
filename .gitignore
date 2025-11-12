@@ -1,0 +1,36 @@
+# Virtual Environment
+backend/myenv/
+
+# Model weights (optional - only if very large)
+*.whl
+# Model weights (optional - only if very large)
+*.whl
+*.pyd
+*.dll
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Results
+results/

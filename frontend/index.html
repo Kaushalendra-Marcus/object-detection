@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOLO Detection Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .navbar {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        }
+
+        .navbar h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .navbar-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            font-size: 14px;
+        }
+
+        .info-item {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 10px 15px;
+            border-radius: 5px;
+        }
+
+        .info-item strong {
+            display: block;
+            margin-bottom: 5px;
+            color: #ffd700;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            padding: 25px;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+        }
+
+        .card h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 22px;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: #f8f9ff;
+        }
+
+        .upload-area:hover {
+            border-color: #764ba2;
+            background: #f0f2ff;
+        }
+
+        .upload-area.dragover {
+            border-color: #764ba2;
+            background: #e8ebff;
+        }
+
+        .upload-area input[type="file"] {
+            display: none;
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+
+        .upload-text {
+            color: #667eea;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .upload-subtext {
+            color: #999;
+            font-size: 12px;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.3s;
+            margin-top: 15px;
+            width: 100%;
+        }
+
+        button:hover:not(:disabled) {
+            transform: scale(1.05);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .button-group button {
+            flex: 1;
+            margin-top: 0;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 15px 0;
+            display: none;
+        }
+
+        .progress-bar.active {
+            display: block;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            animation: progress 1s ease-in-out infinite;
+        }
+
+        @keyframes progress {
+            0% { width: 0%; }
+            50% { width: 70%; }
+            100% { width: 100%; }
+        }
+
+        .results {
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .result-image {
+            width: 100%;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .detection-list {
+            background: #f8f9ff;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 10px;
+        }
+
+        .detection-item {
+            background: white;
+            padding: 12px;
+            margin: 8px 0;
+            border-left: 4px solid #667eea;
+            border-radius: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .detection-class {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .detection-confidence {
+            background: #667eea;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .stream-container {
+            position: relative;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+
+        .stream-image {
+            width: 100%;
+            display: block;
+        }
+
+        .status-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+
+        .status-badge.connected {
+            background: #51cf66;
+            color: white;
+        }
+
+        .status-badge.disconnected {
+            background: #ff6b6b;
+            color: white;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .stat-box {
+            background: #f8f9ff;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border-left: 4px solid #667eea;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #999;
+            margin-top: 5px;
+            text-transform: uppercase;
+        }
+
+        .error {
+            background: #ffe0e0;
+            color: #c92a2a;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            display: none;
+        }
+
+        .error.show {
+            display: block;
+        }
+
+        .success {
+            background: #e7f5ff;
+            color: #1971c2;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            display: none;
+        }
+
+        .success.show {
+            display: block;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+            
+            .navbar-info {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="navbar">
+        <h1>🎯 YOLO Object Detection Dashboard</h1>
+        <div class="navbar-info">
+            <div class="info-item">
+                <strong>Model:</strong> final.pt
+            </div>
+            <div class="info-item">
+                <strong>API Base:</strong> <span id="apiBase">http://localhost:8000</span>
+            </div>
+            <div class="info-item">
+                <strong>Status:</strong> <span id="apiStatus" style="color: #ff6b6b;">Checking...</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Image Detection Card -->
+        <div class="card">
+            <h2>📸 Image Detection</h2>
+            <div class="upload-area" id="imageUploadArea">
+                <div class="upload-icon">📷</div>
+                <div class="upload-text">Click or drag image here</div>
+                <div class="upload-subtext">Supported: JPG, PNG, BMP</div>
+                <input type="file" id="imageInput" accept="image/*">
+            </div>
+            <div class="progress-bar" id="imageProgress">
+                <div class="progress-fill"></div>
+            </div>
+            <button onclick="detectImage()" id="detectImageBtn">Detect Objects</button>
+            <div id="imageResults" class="results"></div>
+            <div id="imageError" class="error"></div>
+            <div id="imageSuccess" class="success"></div>
+        </div>
+
+        <!-- Video Detection Card -->
+        <div class="card">
+            <h2>🎬 Video Detection</h2>
+            <div class="upload-area" id="videoUploadArea">
+                <div class="upload-icon">🎥</div>
+                <div class="upload-text">Click or drag video here</div>
+                <div class="upload-subtext">Supported: MP4, AVI, MOV</div>
+                <input type="file" id="videoInput" accept="video/*">
+            </div>
+            <div class="progress-bar" id="videoProgress">
+                <div class="progress-fill"></div>
+            </div>
+            <button onclick="detectVideo()" id="detectVideoBtn">Process Video</button>
+            <div id="videoResults" class="results"></div>
+            <div id="videoError" class="error"></div>
+            <div id="videoSuccess" class="success"></div>
+        </div>
+
+        <!-- Live Webcam Card -->
+        <div class="card">
+            <h2>🎥 Live Webcam Detection</h2>
+            <div class="stream-container">
+                <img id="stream" class="stream-image" src="" alt="Webcam Stream" style="display: none;">
+                <div id="noStream" style="width: 100%; aspect-ratio: 16/9; background: #000; display: flex; align-items: center; justify-content: center; color: white;">
+                    Stream will appear here
+                </div>
+                <div class="status-badge disconnected" id="streamStatus">Disconnected</div>
+            </div>
+            <div class="button-group">
+                <button onclick="startWebcam()" id="startWebcamBtn">Start Stream</button>
+                <button onclick="stopWebcam()" id="stopWebcamBtn" disabled>Stop Stream</button>
+            </div>
+            <div id="webcamDetections" class="detection-list" style="display: none;">
+                <strong>Live Detections:</strong>
+                <div id="detectionsList"></div>
+            </div>
+            <div id="webcamError" class="error"></div>
+        </div>
+
+        <!-- Stats Card -->
+        <div class="card">
+            <h2>📊 Detection Statistics</h2>
+            <div class="stats">
+                <div class="stat-box">
+                    <div class="stat-value" id="totalDetections">0</div>
+                    <div class="stat-label">Total Detections</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="avgConfidence">0%</div>
+                    <div class="stat-label">Avg Confidence</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="classCount">0</div>
+                    <div class="stat-label">Classes Detected</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="processTime">0ms</div>
+                    <div class="stat-label">Process Time</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        let stats = { total: 0, avgConf: 0, classes: new Set(), time: 0 };
+        let ws = null;
+        let isStreaming = false;
+
+        // Check API health
+        async function checkAPI() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                document.getElementById('apiStatus').textContent = response.ok ? '🟢 Online' : '🔴 Offline';
+                document.getElementById('apiStatus').style.color = response.ok ? '#51cf66' : '#ff6b6b';
+            } catch {
+                document.getElementById('apiStatus').textContent = '🔴 Offline';
+                document.getElementById('apiStatus').style.color = '#ff6b6b';
+            }
+        }
+
+        // Drag & drop for image
+        const imageUploadArea = document.getElementById('imageUploadArea');
+        imageUploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            imageUploadArea.classList.add('dragover');
+        });
+        imageUploadArea.addEventListener('dragleave', () => {
+            imageUploadArea.classList.remove('dragover');
+        });
+        imageUploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            imageUploadArea.classList.remove('dragover');
+            document.getElementById('imageInput').files = e.dataTransfer.files;
+        });
+        imageUploadArea.addEventListener('click', () => document.getElementById('imageInput').click());
+
+        // Drag & drop for video
+        const videoUploadArea = document.getElementById('videoUploadArea');
+        videoUploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            videoUploadArea.classList.add('dragover');
+        });
+        videoUploadArea.addEventListener('dragleave', () => {
+            videoUploadArea.classList.remove('dragover');
+        });
+        videoUploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            videoUploadArea.classList.remove('dragover');
+            document.getElementById('videoInput').files = e.dataTransfer.files;
+        });
+        videoUploadArea.addEventListener('click', () => document.getElementById('videoInput').click());
+
+        // Detect image
+        async function detectImage() {
+            const fileInput = document.getElementById('imageInput');
+            if (!fileInput.files.length) {
+                showError('imageError', 'Please select an image first');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            document.getElementById('imageProgress').classList.add('active');
+            document.getElementById('detectImageBtn').disabled = true;
+
+            try {
+                const response = await fetch(`${API_BASE}/detect/image`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+
+                if (response.ok) {
+                    displayImageResults(data);
+                    showSuccess('imageSuccess', `✓ Detection complete! Found ${data.num_detections} objects`);
+                } else {
+                    showError('imageError', data.detail || 'Detection failed');
+                }
+            } catch (error) {
+                showError('imageError', error.message);
+            } finally {
+                document.getElementById('imageProgress').classList.remove('active');
+                document.getElementById('detectImageBtn').disabled = false;
+            }
+        }
+
+        // Detect video
+        async function detectVideo() {
+            const fileInput = document.getElementById('videoInput');
+            if (!fileInput.files.length) {
+                showError('videoError', 'Please select a video first');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            document.getElementById('videoProgress').classList.add('active');
+            document.getElementById('detectVideoBtn').disabled = true;
+
+            try {
+                const response = await fetch(`${API_BASE}/detect/video`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+
+                if (response.ok) {
+                    showSuccess('videoSuccess', `✓ Video processed! ${data.frames_processed} frames analyzed`);
+                } else {
+                    showError('videoError', data.detail || 'Video processing failed');
+                }
+            } catch (error) {
+                showError('videoError', error.message);
+            } finally {
+                document.getElementById('videoProgress').classList.remove('active');
+                document.getElementById('detectVideoBtn').disabled = false;
+            }
+        }
+
+        // Start webcam stream
+        function startWebcam() {
+            if (isStreaming) return;
+
+            ws = new WebSocket(`ws://${window.location.hostname}:8000/ws/webcam`);
+            
+            ws.onopen = () => {
+                document.getElementById('streamStatus').textContent = '🟢 Connected';
+                document.getElementById('streamStatus').classList.remove('disconnected');
+                document.getElementById('streamStatus').classList.add('connected');
+                document.getElementById('startWebcamBtn').disabled = true;
+                document.getElementById('stopWebcamBtn').disabled = false;
+                document.getElementById('noStream').style.display = 'none';
+                document.getElementById('stream').style.display = 'block';
+                document.getElementById('webcamDetections').style.display = 'block';
+                isStreaming = true;
+            };
+
+            ws.onmessage = (event) => {
+                if (event.data.startsWith('data:image')) {
+                    document.getElementById('stream').src = event.data;
+                } else {
+                    const data = JSON.parse(event.data);
+                    updateWebcamDetections(data);
+                }
+            };
+
+            ws.onerror = () => {
+                showError('webcamError', 'WebSocket connection error');
+            };
+
+            ws.onclose = () => {
+                document.getElementById('streamStatus').textContent = '🔴 Disconnected';
+                document.getElementById('streamStatus').classList.add('disconnected');
+                document.getElementById('streamStatus').classList.remove('connected');
+                document.getElementById('startWebcamBtn').disabled = false;
+                document.getElementById('stopWebcamBtn').disabled = true;
+                document.getElementById('stream').style.display = 'none';
+                document.getElementById('noStream').style.display = 'flex';
+                isStreaming = false;
+            };
+        }
+
+        function stopWebcam() {
+            if (ws) {
+                ws.close();
+            }
+        }
+
+        function updateWebcamDetections(data) {
+            if (data.count === 0) {
+                document.getElementById('detectionsList').innerHTML = '<p style="color: #999;">No detections</p>';
+            } else {
+                document.getElementById('detectionsList').innerHTML = data.objects.map(obj => `
+                    <div class="detection-item">
+                        <span class="detection-class">${obj.class}</span>
+                        <span class="detection-confidence">${(obj.confidence * 100).toFixed(1)}%</span>
+                    </div>
+                `).join('');
+            }
+        }
+
+        function displayImageResults(data) {
+            let html = `<div class="stats">
+                <div class="stat-box">
+                    <div class="stat-value">${data.num_detections}</div>
+                    <div class="stat-label">Detections</div>
+                </div>
+            </div>`;
+
+            if (data.detections.length > 0) {
+                html += '<div class="detection-list">';
+                data.detections.forEach(det => {
+                    html += `<div class="detection-item">
+                        <span class="detection-class">${det.class_name}</span>
+                        <span class="detection-confidence">${(det.confidence * 100).toFixed(1)}%</span>
+                    </div>`;
+                });
+                html += '</div>';
+            }
+
+            document.getElementById('imageResults').innerHTML = html;
+        }
+
+        function showError(elementId, message) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.classList.add('show');
+            setTimeout(() => element.classList.remove('show'), 5000);
+        }
+
+        function showSuccess(elementId, message) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.classList.add('show');
+            setTimeout(() => element.classList.remove('show'), 5000);
+        }
+
+        // Initialize
+        window.addEventListener('load', () => {
+            checkAPI();
+            setInterval(checkAPI, 10000);
+        });
+    </script>
+</body>
+</html>
