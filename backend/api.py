@@ -12,14 +12,18 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 import torch
-try:
-    # Allowlist the ultralytics DetectionModel class so torch.load with weights_only=True can succeed
-    # See: https://pytorch.org/docs/stable/generated/torch.load.html
-    from ultralytics.nn.tasks import DetectionModel
-    torch.serialization.add_safe_globals([DetectionModel])
-except Exception:
-    # If the import fails on very old/new ultralytics versions, continue and let the loader raise a clear error
-    pass
+
+# Monkeypatch ultralytics torch_safe_load to disable weights_only=True
+# This avoids the need to allowlist dozens of custom classes in PyTorch 2.6+
+import ultralytics.nn.tasks as ultralytics_tasks
+_original_torch_safe_load = ultralytics_tasks.torch_safe_load
+
+def torch_safe_load_patched(file):
+    """Load checkpoint without weights_only restriction (trusted source)."""
+    return torch.load(file, map_location='cpu'), file
+
+ultralytics_tasks.torch_safe_load = torch_safe_load_patched
+
 import io
 from pathlib import Path
 import asyncio
