@@ -1,3 +1,4 @@
+# api.py
 """
 FastAPI-based REST API for YOLO object detection.
 Supports image upload, video stream, and live webcam detection.
@@ -145,87 +146,79 @@ async def detect_image(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.post("/detect/video")
 async def detect_video(
     file: UploadFile = File(...),
     confidence: float = CONFIDENCE_THRESHOLD
 ):
-    """
-    Detect objects in uploaded video and return processed video.
-    
-    Parameters:
-    - file: Video file (mp4, avi, etc.)
-    - confidence: Detection confidence threshold
-    
-    Returns:
-    - Streaming video response with detections
-    """
     try:
-        # Save uploaded video temporarily
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         temp_video = RESULTS_DIR / f"temp_{timestamp}.mp4"
-        
+
         contents = await file.read()
         with open(temp_video, "wb") as f:
             f.write(contents)
-        
-        # Open video file
+
         cap = cv2.VideoCapture(str(temp_video))
-        
         if not cap.isOpened():
             raise HTTPException(status_code=400, detail="Invalid video file")
-        
-        # Get video properties
-        fps = cap.get(cv2.CAP_PROP_FPS)
+
+        # Original FPS and resolution
+        orig_fps = cap.get(cv2.CAP_PROP_FPS)
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        
-        # Setup video writer
+
+        # ↓ reduce frame rate (process fewer frames)
+        skip_rate = 3   # Adjust this number (3 → ~⅓ frames processed)
+        fps = orig_fps / skip_rate
+
         output_path = RESULTS_DIR / f"detected_{timestamp}.mp4"
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
-        
+
         frame_count = 0
+        processed_frames = 0
         detections_list = []
-        
+
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
-            
-            # Run detection
+
+            frame_count += 1
+
+            # Skip frames for lower FPS
+            if frame_count % skip_rate != 0:
+                continue
+
             results = model(frame, conf=confidence)
             result = results[0]
-            
-            # Extract detections
+
             for box in result.boxes:
                 detections_list.append({
-                    "frame": frame_count,
+                    "frame": processed_frames,
                     "class": model.names[int(box.cls[0])],
                     "confidence": float(box.conf[0])
                 })
-            
-            # Draw annotations
+
             annotated_frame = result.plot()
             out.write(annotated_frame)
-            frame_count += 1
-        
+            processed_frames += 1
+
         cap.release()
         out.release()
-        
-        # Clean up temp file
-        if temp_video.exists():
-            os.remove(temp_video)
-        
+        os.remove(temp_video)
+
         return {
             "status": "success",
             "video_saved": str(output_path),
-            "frames_processed": frame_count,
-            "detections": detections_list,
+            "frames_processed": processed_frames,
+            "total_frames": frame_count,
+            "original_fps": orig_fps,
+            "processed_fps": fps,
             "timestamp": timestamp
         }
-    
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

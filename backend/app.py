@@ -1,3 +1,4 @@
+#app.py
 from ultralytics import YOLO
 
 model = YOLO(r"E:\model train\train\backend\weights\final.pt")

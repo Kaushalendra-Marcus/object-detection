@@ -1,3 +1,4 @@
+#client.py
 """
 YOLO Detection Client Library
 Easy-to-use Python client for the YOLO Detection API
