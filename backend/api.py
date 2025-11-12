@@ -17,7 +17,6 @@ import asyncio
 import json
 from datetime import datetime
 import os
-
 # Initialize FastAPI app
 app = FastAPI(title="YOLO Object Detection API", version="1.0.0")
 
@@ -30,8 +29,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load model
-MODEL_PATH = Path(r"E:\model train\train\backend\weights\final.pt")
+
+MODEL_PATH = Path(__file__).parent / "weights" / "final.pt"
 model = YOLO(str(MODEL_PATH))
 
 # Configuration
