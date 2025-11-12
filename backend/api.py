@@ -11,6 +11,15 @@ from fastapi.middleware.cors import CORSMiddleware
 import cv2
 import numpy as np
 from ultralytics import YOLO
+import torch
+try:
+    # Allowlist the ultralytics DetectionModel class so torch.load with weights_only=True can succeed
+    # See: https://pytorch.org/docs/stable/generated/torch.load.html
+    from ultralytics.nn.tasks import DetectionModel
+    torch.serialization.add_safe_globals([DetectionModel])
+except Exception:
+    # If the import fails on very old/new ultralytics versions, continue and let the loader raise a clear error
+    pass
 import io
 from pathlib import Path
 import asyncio
@@ -30,14 +39,28 @@ app.add_middleware(
 )
 
 
+# Use a relative results directory so it works on Render (not hardcoded Windows path)
 MODEL_PATH = Path(__file__).parent / "weights" / "final.pt"
-model = YOLO(str(MODEL_PATH))
+
+# Defer model loading to startup so we can prepare safe globals first and fail cleanly
+model = None
+
+
+@app.on_event("startup")
+def load_model_event():
+    global model
+    try:
+        model = YOLO(str(MODEL_PATH))
+    except Exception as e:
+        # Re-raise with context so deployment logs show why startup failed
+        raise RuntimeError(f"Failed to load model {MODEL_PATH}: {e}") from e
 
 # Configuration
 CONFIDENCE_THRESHOLD = 0.5
 MAX_DETECTIONS = 100
-RESULTS_DIR = Path(r"E:\model train\train\results")
-RESULTS_DIR.mkdir(exist_ok=True)
+# Results directory under the project so it exists on Render and locally
+RESULTS_DIR = Path(__file__).parent.parent / "results"
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @app.get("/")
