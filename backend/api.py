@@ -20,7 +20,7 @@ _original_torch_safe_load = ultralytics_tasks.torch_safe_load
 
 def torch_safe_load_patched(file):
     """Load checkpoint without weights_only restriction (trusted source)."""
-    return torch.load(file, map_location='cpu'), file
+    return torch.load(file, map_location='cpu', weights_only=False), file
 
 ultralytics_tasks.torch_safe_load = torch_safe_load_patched
 
