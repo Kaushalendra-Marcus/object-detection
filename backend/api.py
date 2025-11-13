@@ -231,6 +231,58 @@ async def download_file(file_id: str):
         # Determine media type
         if file_info["type"] == "image":
             media_type = "image/jpeg"
+            filename = f"detected_{file_id}.jpg"
+        elif file_info["type"] == "video":
+            media_type = "video/mp4"
+            filename = f"detected_{file_id}.mp4"
+        else:
+            media_type = "application/octet-stream"
+            filename = file_info["filename"]
+        
+        # Read file content
+        with open(file_path, "rb") as f:
+            file_content = f.read()
+        
+        # Delete file immediately after reading
+        try:
+            os.remove(file_path)
+            if file_id in file_metadata:
+                del file_metadata[file_id]
+        except Exception as e:
+            print(f"Error deleting file: {e}")
+        
+        # Return response with file content
+        return Response(
+            content=file_content,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}",
+                "Access-Control-Expose-Headers": "Content-Disposition"
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Download error: {str(e)}")
+    """
+    Download detected file and then delete it from server
+    """
+    try:
+        if file_id not in file_metadata:
+            raise HTTPException(status_code=404, detail="File not found or already downloaded")
+        
+        file_info = file_metadata[file_id]
+        file_path = Path(file_info["filepath"])
+        
+        if not file_path.exists():
+            # Remove from metadata if file doesn't exist
+            del file_metadata[file_id]
+            raise HTTPException(status_code=404, detail="File not found on server")
+        
+        # Determine media type
+        if file_info["type"] == "image":
+            media_type = "image/jpeg"
         elif file_info["type"] == "video":
             media_type = "video/mp4"
         else:
