@@ -5,7 +5,7 @@ Supports image upload, video stream, and live webcam detection.
 """
 
 from fastapi import FastAPI, File, UploadFile, WebSocket, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse, HTMLResponse
+from fastapi.responses import FileResponse, StreamingResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import cv2
@@ -68,11 +68,9 @@ MAX_DETECTIONS = 100
 RESULTS_DIR = Path(__file__).parent.parent / "results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Store file metadata for cleanup
-file_metadata: Dict[str, Dict] = {}
-
-# Mount static files for serving results
-app.mount("/results", StaticFiles(directory=RESULTS_DIR), name="results")
+# Map file_id to actual filename (simple in-memory cache that survives within a process)
+# For production, use a database or persistent file index
+file_id_map: Dict[str, str] = {}
 
 def cleanup_old_files(max_age_minutes: int = 60):
     """Clean up files older than specified minutes"""
@@ -187,13 +185,8 @@ async def detect_image(
         
         cv2.imwrite(str(output_path), annotated_img)
         
-        # Store file metadata
-        file_metadata[file_id] = {
-            "filename": output_filename,
-            "filepath": str(output_path),
-            "created_at": datetime.now().isoformat(),
-            "type": "image"
-        }
+        # Store mapping (for quick lookup)
+        file_id_map[file_id] = output_filename
         
         # Generate download URL
         download_url = f"/download/{file_id}"
@@ -214,60 +207,49 @@ async def detect_image(
 @app.get("/download/{file_id}")
 async def download_file(file_id: str):
     """
-    Download detected file and then delete it from server
+    Download detected image file.
+    File is looked up by UUID; if found, it's served immediately.
     """
     try:
-        if file_id not in file_metadata:
-            raise HTTPException(status_code=404, detail="File not found or already downloaded")
-        
-        file_info = file_metadata[file_id]
-        file_path = Path(file_info["filepath"])
+        # Check if file_id is in the map (quick lookup)
+        if file_id in file_id_map:
+            output_filename = file_id_map[file_id]
+            file_path = RESULTS_DIR / output_filename
+        else:
+            # Fallback: try to find file by UUID in results directory
+            # (handles cases where the map wasn't populated)
+            matching_files = list(RESULTS_DIR.glob(f"*_{file_id}.jpg"))
+            if not matching_files:
+                matching_files = list(RESULTS_DIR.glob(f"*_{file_id}.mp4"))
+            
+            if not matching_files:
+                raise HTTPException(status_code=404, detail="File not found")
+            
+            file_path = matching_files[0]
         
         if not file_path.exists():
-            # Remove from metadata if file doesn't exist
-            del file_metadata[file_id]
             raise HTTPException(status_code=404, detail="File not found on server")
         
-        # Determine media type
-        if file_info["type"] == "image":
+        # Determine media type based on file extension
+        suffix = file_path.suffix.lower()
+        if suffix == ".jpg" or suffix == ".jpeg":
             media_type = "image/jpeg"
-            filename = f"detected_{file_id}.jpg"
-        elif file_info["type"] == "video":
+        elif suffix == ".mp4":
             media_type = "video/mp4"
-            filename = f"detected_{file_id}.mp4"
         else:
             media_type = "application/octet-stream"
-            filename = file_info["filename"]
         
-        # Read file content
-        with open(file_path, "rb") as f:
-            file_content = f.read()
-        
-        # Delete file immediately after reading
-        try:
-            os.remove(file_path)
-            if file_id in file_metadata:
-                del file_metadata[file_id]
-        except Exception as e:
-            print(f"Error deleting file: {e}")
-        
-        # Return response with file content
-        return Response(
-            content=file_content,
+        # Return the file as response (client downloads it)
+        return FileResponse(
+            path=file_path,
             media_type=media_type,
-            headers={
-                "Content-Disposition": f"attachment; filename={filename}",
-                "Access-Control-Expose-Headers": "Content-Disposition"
-            }
+            filename=f"detected_{file_id}{suffix}"
         )
         
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Download error: {str(e)}")
-    """
-    Download detected file and then delete it from server
-    """
     try:
         if file_id not in file_metadata:
             raise HTTPException(status_code=404, detail="File not found or already downloaded")
@@ -387,13 +369,8 @@ async def detect_video(
         if temp_video.exists():
             os.remove(temp_video)
 
-        # Store file metadata
-        file_metadata[file_id] = {
-            "filename": output_filename,
-            "filepath": str(output_path),
-            "created_at": datetime.now().isoformat(),
-            "type": "video"
-        }
+        # Store file mapping
+        file_id_map[file_id] = output_filename
 
         # Generate download URL
         download_url = f"/download/{file_id}"
