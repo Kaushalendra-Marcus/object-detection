@@ -30,6 +30,10 @@ import asyncio
 import json
 from datetime import datetime
 import os
+import base64
+import uuid
+from typing import Dict, List
+
 # Initialize FastAPI app
 app = FastAPI(title="YOLO Object Detection API", version="1.0.0")
 
@@ -42,13 +46,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # Use a relative results directory so it works on Render (not hardcoded Windows path)
 MODEL_PATH = Path(__file__).parent / "weights" / "final.pt"
 
 # Defer model loading to startup so we can prepare safe globals first and fail cleanly
 model = None
-
 
 @app.on_event("startup")
 def load_model_event():
@@ -66,6 +68,26 @@ MAX_DETECTIONS = 100
 RESULTS_DIR = Path(__file__).parent.parent / "results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
+# Store file metadata for cleanup
+file_metadata: Dict[str, Dict] = {}
+
+# Mount static files for serving results
+app.mount("/results", StaticFiles(directory=RESULTS_DIR), name="results")
+
+def cleanup_old_files(max_age_minutes: int = 60):
+    """Clean up files older than specified minutes"""
+    try:
+        current_time = datetime.now()
+        for filename in os.listdir(RESULTS_DIR):
+            file_path = RESULTS_DIR / filename
+            if file_path.is_file():
+                file_time = datetime.fromtimestamp(file_path.stat().st_mtime)
+                age_minutes = (current_time - file_time).total_seconds() / 60
+                if age_minutes > max_age_minutes:
+                    os.remove(file_path)
+                    print(f"Cleaned up old file: {filename}")
+    except Exception as e:
+        print(f"Cleanup error: {e}")
 
 @app.get("/")
 async def root():
@@ -79,11 +101,11 @@ async def root():
             "/docs - Swagger API documentation",
             "/detect/image - Detect objects in image",
             "/detect/video - Detect objects in video",
+            "/download/{file_id} - Download detected file",
             "/detect/webcam - Live webcam detection (WebSocket)",
             "/health - Health check",
         ]
     }
-
 
 @app.get("/health")
 async def health_check():
@@ -96,7 +118,6 @@ async def health_check():
         "timestamp": datetime.now().isoformat()
     }
 
-
 @app.get("/model-info")
 async def model_info():
     """Get model information"""
@@ -107,7 +128,6 @@ async def model_info():
         "num_classes": len(model.names),
         "confidence_threshold": CONFIDENCE_THRESHOLD
     }
-
 
 @app.post("/detect/image")
 async def detect_image(
@@ -122,9 +142,12 @@ async def detect_image(
     - confidence: Detection confidence threshold (0.0-1.0)
     
     Returns:
-    - JSON with detections and annotated image
+    - JSON with detections and download URL
     """
     try:
+        # Clean up old files first
+        cleanup_old_files(30)  # Clean files older than 30 minutes
+        
         # Read uploaded file
         contents = await file.read()
         nparr = np.frombuffer(contents, np.uint8)
@@ -156,30 +179,103 @@ async def detect_image(
         # Draw bounding boxes on image
         annotated_img = result.plot()
         
-        # Save annotated image
+        # Save annotated image with unique ID
+        file_id = str(uuid.uuid4())
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_path = RESULTS_DIR / f"detection_{timestamp}.jpg"
+        output_filename = f"detection_{timestamp}_{file_id}.jpg"
+        output_path = RESULTS_DIR / output_filename
+        
         cv2.imwrite(str(output_path), annotated_img)
+        
+        # Store file metadata
+        file_metadata[file_id] = {
+            "filename": output_filename,
+            "filepath": str(output_path),
+            "created_at": datetime.now().isoformat(),
+            "type": "image"
+        }
+        
+        # Generate download URL
+        download_url = f"/download/{file_id}"
         
         return {
             "status": "success",
             "detections": detections,
             "num_detections": len(detections),
-            "image_saved": str(output_path),
-            "timestamp": timestamp
+            "download_url": download_url,
+            "file_id": file_id,
+            "timestamp": timestamp,
+            "message": "Use the download_url to download the annotated image"
         }
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/download/{file_id}")
+async def download_file(file_id: str):
+    """
+    Download detected file and then delete it from server
+    """
+    try:
+        if file_id not in file_metadata:
+            raise HTTPException(status_code=404, detail="File not found or already downloaded")
+        
+        file_info = file_metadata[file_id]
+        file_path = Path(file_info["filepath"])
+        
+        if not file_path.exists():
+            # Remove from metadata if file doesn't exist
+            del file_metadata[file_id]
+            raise HTTPException(status_code=404, detail="File not found on server")
+        
+        # Determine media type
+        if file_info["type"] == "image":
+            media_type = "image/jpeg"
+        elif file_info["type"] == "video":
+            media_type = "video/mp4"
+        else:
+            media_type = "application/octet-stream"
+        
+        # Create response with file
+        response = FileResponse(
+            path=file_path,
+            media_type=media_type,
+            filename=file_info["filename"]
+        )
+        
+        # Schedule file deletion after response is sent
+        @response.background
+        def delete_file_after_download():
+            try:
+                if file_path.exists():
+                    os.remove(file_path)
+                    print(f"Deleted file: {file_path}")
+                # Remove from metadata
+                if file_id in file_metadata:
+                    del file_metadata[file_id]
+            except Exception as e:
+                print(f"Error deleting file {file_path}: {e}")
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Download error: {str(e)}")
 
 @app.post("/detect/video")
 async def detect_video(
     file: UploadFile = File(...),
     confidence: float = CONFIDENCE_THRESHOLD
 ):
+    """Detect objects in uploaded video"""
     try:
+        # Clean up old files first
+        cleanup_old_files(30)
+        
+        file_id = str(uuid.uuid4())
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        temp_video = RESULTS_DIR / f"temp_{timestamp}.mp4"
+        temp_video = RESULTS_DIR / f"temp_{timestamp}_{file_id}.mp4"
 
         contents = await file.read()
         with open(temp_video, "wb") as f:
@@ -194,11 +290,12 @@ async def detect_video(
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-        # ↓ reduce frame rate (process fewer frames)
-        skip_rate = 3   # Adjust this number (3 → ~⅓ frames processed)
+        # Reduce frame rate for faster processing
+        skip_rate = 3
         fps = orig_fps / skip_rate
 
-        output_path = RESULTS_DIR / f"detected_{timestamp}.mp4"
+        output_filename = f"detected_{timestamp}_{file_id}.mp4"
+        output_path = RESULTS_DIR / output_filename
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
 
@@ -233,21 +330,36 @@ async def detect_video(
 
         cap.release()
         out.release()
-        os.remove(temp_video)
+        
+        # Clean up temp file
+        if temp_video.exists():
+            os.remove(temp_video)
+
+        # Store file metadata
+        file_metadata[file_id] = {
+            "filename": output_filename,
+            "filepath": str(output_path),
+            "created_at": datetime.now().isoformat(),
+            "type": "video"
+        }
+
+        # Generate download URL
+        download_url = f"/download/{file_id}"
 
         return {
             "status": "success",
-            "video_saved": str(output_path),
+            "download_url": download_url,
+            "file_id": file_id,
             "frames_processed": processed_frames,
             "total_frames": frame_count,
             "original_fps": orig_fps,
             "processed_fps": fps,
-            "timestamp": timestamp
+            "timestamp": timestamp,
+            "message": "Use the download_url to download the annotated video"
         }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.websocket("/ws/webcam")
 async def websocket_webcam(websocket: WebSocket):
@@ -301,7 +413,6 @@ async def websocket_webcam(websocket: WebSocket):
             })
             
             # Send image as base64
-            import base64
             await websocket.send_text(f"data:image/jpeg;base64,{base64.b64encode(frame_data).decode()}")
             
             await asyncio.sleep(0.03)  # ~30 FPS
@@ -311,7 +422,6 @@ async def websocket_webcam(websocket: WebSocket):
     finally:
         cap.release()
         await websocket.close()
-
 
 @app.get("/detect/webcam-html")
 async def webcam_html():
@@ -464,7 +574,6 @@ async def webcam_html():
     </body>
     </html>
     """)
-
 
 if __name__ == "__main__":
     import uvicorn
