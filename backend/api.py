@@ -180,7 +180,11 @@ async def detect_image(
         # Save annotated image with unique ID
         file_id = str(uuid.uuid4())
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_filename = f"detection_{timestamp}_{file_id}.jpg"
+        # Use original file extension, default to jpg if not available
+        original_ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
+        if original_ext not in [".jpg", ".jpeg", ".png"]:
+            original_ext = ".jpg"
+        output_filename = f"detection_{timestamp}_{file_id}{original_ext}"
         output_path = RESULTS_DIR / output_filename
         
         cv2.imwrite(str(output_path), annotated_img)
@@ -220,6 +224,10 @@ async def download_file(file_id: str):
             # (handles cases where the map wasn't populated)
             matching_files = list(RESULTS_DIR.glob(f"*_{file_id}.jpg"))
             if not matching_files:
+                matching_files = list(RESULTS_DIR.glob(f"*_{file_id}.jpeg"))
+            if not matching_files:
+                matching_files = list(RESULTS_DIR.glob(f"*_{file_id}.png"))
+            if not matching_files:
                 matching_files = list(RESULTS_DIR.glob(f"*_{file_id}.mp4"))
             
             if not matching_files:
@@ -234,6 +242,8 @@ async def download_file(file_id: str):
         suffix = file_path.suffix.lower()
         if suffix == ".jpg" or suffix == ".jpeg":
             media_type = "image/jpeg"
+        elif suffix == ".png":
+            media_type = "image/png"
         elif suffix == ".mp4":
             media_type = "video/mp4"
         else:
